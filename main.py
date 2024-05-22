@@ -1,10 +1,13 @@
 import argparse
 import torch
 from torch_geometric.loader import DataLoader
-
-from gnn import GCN
+import numpy as np
+from models.gnn import GCN, GraphSAGE, 
+from models.gin import GINModel
 from parameters import *
-from utils import *
+from utility import *
+from torch_geometric.data import NeighborSampler
+from torch.utils.data import Subset
 
 def evaluateFinalModel():
     model = loadModel(final=True)
@@ -17,17 +20,27 @@ def evaluateModel():
     modelAccuracy(model, test_loader, save=False)
 
 def prepareLoaders(dataset):
-    train_dataset = dataset[250:950]
-    train_loader = DataLoader(train_dataset, BATCH_SIZE, shuffle=True)
-    #printLabelBalance(train_loader) 
+    batch_size = BATCH_SIZE
+    indices = torch.randperm(len(dataset))
 
-    test_dataset = dataset[0:200] + dataset[950:1000]
-    test_loader = DataLoader(test_dataset, BATCH_SIZE, shuffle=False)
+    train_indices = indices[250:950]  # Training indices
+    test_indices = torch.cat((indices[:200], indices[950:1000]))  # Test indices
+
+    train_dataset = Subset(dataset, train_indices)
+    test_dataset = Subset(dataset, test_indices)
+
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
     return train_loader, test_loader
 
-def prepareTraining(random):
-    model = GCN(random)
+def prepareTraining(random, model_type=None):
+    if model_type == 'gcn':
+        model = GCN(random)
+    elif model_type == 'graphsage':
+        model = GraphSAGE(random)
+    else:
+        model = GINModel()
     optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
 
     return model, optimizer
@@ -37,19 +50,21 @@ def train(model, train_loader, optimizer, random, num_samples):
 
     total_loss = 0
     i = 0
+    #print("Training with random=", random)
+    #print("Training with random=", random)
     for data in train_loader:
         optimizer.zero_grad()
         if random:
             # x is size N x 1 x M for M samples
-            x = torch.randn((data.x.shape[0], 1, num_samples))
+            x = torch.randn((data.x.shape[0], 1, num_samples)).to('cuda')
             #x = data.x.view(data.x.shape[0], data.x.shape[1], num_samples)
-            edge_index = data.edge_index
+            edge_index = data.edge_index.to('cuda')
         else:
             # x is size N x Features
-            x = data.x
-            edge_index = data.edge_index
-        pred = model(x, edge_index, data.batch)
-        loss = loss_function(pred, data.y.float())
+            x = data.x.to('cuda')
+            edge_index = data.edge_index.to('cuda')
+        pred = model(x, edge_index, data.batch.to('cuda'))
+        loss = loss_function(pred, data.y.float().to('cuda'))
         loss.backward()
         optimizer.step()
 
@@ -70,13 +85,17 @@ def trainingLoop(model, train_loader, optimizer, log=True, logExtended = False, 
         print(f"Model was saved to {MODEL_PATH}")
 
 def modelAccuracy(model, test_loader, save=False, random=True, num_samples=10):
+    print("Model accuracy for random=", random)
     avg_acc = accuracy(test_loader, model, random, num_samples=num_samples)
     print(f'Model Accuracy: {avg_acc:.2f}')
 
     return avg_acc
 
-def trainAndSaveModel(random, num_samples):
-    model, optimizer = prepareTraining(random)
+def trainAndSaveModel(random, num_samples, model_type):
+    if num_samples is not None:
+        num_samples = int(num_samples)
+    model, optimizer = prepareTraining(random, model_type)
+    model = model.to('cuda')
 
     trainingLoop(model, train_loader, optimizer, random=random, num_samples=num_samples)
     modelAccuracy(model, test_loader, random=random, num_samples=num_samples)
@@ -88,21 +107,27 @@ if __name__ == "__main__":
     parser.add_argument('-test', action='store_true')   
     parser.add_argument('-train', action='store_true')   
     parser.add_argument('-random', action='store_true')
-    parser.add_argument('-num_samples')
+    parser.add_argument('-num_samples', nargs='+', type=int)
+    parser.add_argument('-model_type', type=str)
     args = parser.parse_args()
 
     # Random denotes random sampling for node features
     # num_samples specifies M, the number of random samples
     dataset = loadDataset()
     train_loader, test_loader = prepareLoaders(dataset)
-    loss_function = torch.nn.CrossEntropyLoss()
+    loss_function = torch.nn.BCELoss() #CrossEntropYloss
 
     if args.evalFinal:
         evaluateFinalModel()
     elif args.evalTrained:
         evaluateModel()
     elif args.train:
-        trainAndSaveModel(args.random, int(args.num_samples))
+        if args.num_samples is None:
+            trainAndSaveModel(args.random, args.num_samples, args.model_type)
+        else:
+            for num_sample in args.num_samples:
+                print("Num samples:", num_sample)
+                trainAndSaveModel(args.random, num_sample, args.model_type)
     elif args.test:
         testModelAccuracy(int(args.num_samples))
     else:
