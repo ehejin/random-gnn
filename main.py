@@ -25,16 +25,25 @@ def prepareLoaders(dataset):
     batch_size = BATCH_SIZE
     indices = torch.randperm(len(dataset))
 
-    train_indices = indices[250:950]  # Training indices
-    test_indices = torch.cat((indices[:200], indices[950:1000]))  # Test indices
+    num_train = 700   
+    num_val = 100     
+    num_test = 200    
+
+    train_indices = indices[num_test:num_test + num_train]
+
+    val_indices = indices[num_test + num_train:num_test + num_train + num_val]
+
+    test_indices = torch.cat((indices[:num_test], indices[num_test + num_train + num_val:]))
 
     train_dataset = Subset(dataset, train_indices)
+    val_dataset = Subset(dataset, val_indices)
     test_dataset = Subset(dataset, test_indices)
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
-    return train_loader, test_loader, train_dataset
+    return train_loader, test_loader, train_dataset, val_loader,
 
 def prepareTraining(random, model_type=None, deg=None):
     if model_type == 'gcn':
@@ -55,31 +64,37 @@ def train(model, train_loader, optimizer, random, num_samples):
     total_loss = 0
     i = 0
     for data in train_loader:
+        data = data.to('cuda')
         optimizer.zero_grad()
         if random:
             # x is size N x 1 x M for M samples
             x = torch.randn((data.x.shape[0], 1, num_samples)).to('cuda')
-            edge_index = data.edge_index.to('cuda')
+            edge_index = data.edge_index
         else:
             # x is size N x F
-            x = data.x.to('cuda')
-            edge_index = data.edge_index.to('cuda')
-        pred = model(x, edge_index, data.batch.to('cuda'))
-        loss = loss_function(pred, data.y.float().to('cuda'))
+            x = data.x
+            edge_index = data.edge_index
+        pred = model(x, edge_index, data.batch)
+        loss = (pred.squeeze() - data.y).abs().mean()
+        #loss = loss_function(pred, data.y.float().to('cuda'))
         loss.backward()
         optimizer.step()
 
-        total_loss += loss
-    return total_loss
+        total_loss += loss.item()
+    return total_loss / len(train_loader.dataset)
 
-def trainingLoop(model, train_loader, optimizer, log=True, logExtended = False, save_model=True, random=True, num_samples=None):
+def trainingLoop(model, train_loader, val_loader, optimizer, log=True, logExtended = False, save_model=True, random=True, num_samples=None):
     print("Training model...")
     for epoch in range(EPOCHS):
         loss = train(model, train_loader, optimizer, random, num_samples)
 
         if log and epoch % 5 == 0:
                 avg_acc = accuracy(train_loader, model, random, num_samples)
-                print(f'Epoch {epoch:>3} | Loss: {loss:.2f} | Accuracy: {avg_acc:.2f}')
+                val_acc = accuracy(val_loader, model, random, num_samples=num_samples)
+                print(f'Epoch {epoch:>3} | Loss: {loss:.5f} | Accuracy: {avg_acc:.5f}| VAL: {val_acc:.5f}')
+        '''if log and epoch % 10 == 0:
+            val_acc = accuracy(val_loader, model, random, num_samples=num_samples)
+            print()'''
 
     if (save_model):
         torch.save(model.state_dict(), MODEL_PATH)
@@ -88,11 +103,11 @@ def trainingLoop(model, train_loader, optimizer, log=True, logExtended = False, 
 def modelAccuracy(model, test_loader, save=False, random=True, num_samples=10):
     print("Model accuracy for random=", random)
     avg_acc = accuracy(test_loader, model, random, num_samples=num_samples)
-    print(f'Model Accuracy: {avg_acc:.2f}')
+    print(f'Model Accuracy: {avg_acc:.4f}')
 
     return avg_acc
 
-def trainAndSaveModel(random, num_samples, model_type, train_dataset):
+def trainAndSaveModel(random, num_samples, model_type, train_dataset, train_loader, val_loader, test_loader):
     max_degree = -1
     for data in train_dataset:
         d = degree(data.edge_index[1], num_nodes=data.num_nodes, dtype=torch.long)
@@ -109,7 +124,7 @@ def trainAndSaveModel(random, num_samples, model_type, train_dataset):
     model, optimizer = prepareTraining(random, model_type, deg)
     model = model.to('cuda')
 
-    trainingLoop(model, train_loader, optimizer, random=random, num_samples=num_samples)
+    trainingLoop(model, train_loader, val_loader, optimizer, random=random, num_samples=num_samples)
     modelAccuracy(model, test_loader, random=random, num_samples=num_samples)
 
 if __name__ == "__main__":
@@ -126,7 +141,7 @@ if __name__ == "__main__":
     # Random denotes random sampling for node features
     # num_samples specifies M, the number of random samples
     dataset = loadDataset()
-    train_loader, test_loader, train_dataset = prepareLoaders(dataset)
+    train_loader, test_loader, train_dataset, val_loader = prepareLoaders(dataset)
     loss_function = torch.nn.BCELoss() #CrossEntropYloss
 
     if args.evalFinal:
@@ -135,7 +150,7 @@ if __name__ == "__main__":
         evaluateModel()
     elif args.train:
         if args.num_samples is None:
-            trainAndSaveModel(args.random, args.num_samples, args.model_type, train_dataset)
+            trainAndSaveModel(args.random, args.num_samples, args.model_type, train_dataset, train_loader, val_loader, test_loader)
         else:
             for num_sample in args.num_samples:
                 print("Num samples:", num_sample)

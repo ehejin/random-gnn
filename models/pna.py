@@ -38,40 +38,50 @@ class Linear2(Linear):
 
 class PNA(torch.nn.Module):
     def __init__(self, random, deg):
-        super(PNA, self).__init__()
+        super().__init__()
         self.random = random
-        aggregators = ['mean', 'min', 'max', 'std']  # Define aggregators
-        scalers = ['identity', 'amplification', 'attenuation']  # Define scalers
+        aggregators = ['mean', 'min', 'max', 'std']  
+        scalers = ['identity', 'amplification', 'attenuation']  
+        
+        #self.node_emb = Embedding(max_degree + 1, 75)
+        #self.edge_emb = Embedding(4, 50)  
+        #self.feature_emb = torch.nn.Linear(1, 75)
 
-        if self.random:
-            self.conv = PNAConv(1, 50, aggregators, scalers, deg=deg, edge_dim=1)
-            self.conv2 = PNAConv(50, 50, aggregators, scalers, deg=deg, edge_dim=1)
-        else:
-            self.conv = PNAConv(1, 50, aggregators, scalers, deg=deg)
-            self.conv2 = PNAConv(50, 50, aggregators, scalers, deg=deg)
+        self.convs = torch.nn.ModuleList()
+        self.batch_norms = torch.nn.ModuleList()
+        self.dropouts = torch.nn.ModuleList()
+        for _ in range(4):
+            conv = PNAConv(in_channels=1, out_channels=50,
+                           aggregators=aggregators, scalers=scalers, deg=deg,
+                           edge_dim=None, towers=2, pre_layers=1, post_layers=1,
+                           divide_input=False)
+            self.convs.append(conv)
+            self.batch_norms.append(torch.nn.BatchNorm1d(50)) 
+            self.dropouts.append(torch.nn.Dropout(0.5))
 
-        self.lin = Linear(50, 1)
-        self.pred = Sigmoid()
-        self.drop = Dropout(0.5)
-        self.relu = ReLU()
-
-    def forward(self, x, edge_index, batch=None):
-        x = self.conv(x, edge_index).relu()
-        x = self.conv2(x, edge_index).relu()
-
-        x = new_global_mean_pool(x, batch)
-
-        x = self.drop(x)
-        x = self.lin(x)
-        x = self.pred(x).flatten()
-
-        return x
+        self.mlp = torch.nn.Sequential(
+            torch.nn.Linear(1, 50), torch.nn.ReLU(), 
+            torch.nn.Linear(50, 25), torch.nn.ReLU(),
+            torch.nn.Linear(25, 1))
     
+    def forward(self, x, edge_index, batch):
+        #x = self.feature_emb(x)  
+        #edge_attr = self.edge_emb(edge_attr)  
+
+        for conv, batch_norm, dropout in zip(self.convs, self.batch_norms, self.dropouts):
+            x = conv(x, edge_index)
+            x = batch_norm(x)
+            x = F.relu(x)
+            x = dropout(x)
+
+        x = global_add_pool(x, batch)
+        return self.mlp(x)
+
     def evaluate(self, x, edge_index, batch):
         preds = self.forward(x=x, edge_index=edge_index, batch=batch)
-        labels = label(preds)  # Define 'label' function or replace with appropriate logic
+        #labels = label(preds)  # Define 'label' function or replace with appropriate logic
 
-        return preds, labels
+        return preds
 
 class PNAGIN(torch.nn.Module):
     def __init__(self, num_features, num_classes, num_layers, hidden_dim):

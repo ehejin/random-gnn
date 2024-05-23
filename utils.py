@@ -1,7 +1,7 @@
 import os
 import torch
 import torch_geometric.transforms as T
-from torch_geometric.datasets import TUDataset
+from torch_geometric.datasets import TUDataset, ZINC
 from torch_geometric.utils import degree
 from torch_geometric.explain import Explainer, GNNExplainer
 from PIL import Image, ImageDraw, ImageFont
@@ -25,22 +25,35 @@ def label(pred):
     return pred
 
 @torch.no_grad()
-def accuracy(loader, model, random=True, num_samples=10):
+def accuracy(loader, model, random=True, num_samples=10, acc_type=None):
     model.eval()
 
-    total_acc = 0
-    for data in loader:
-        if random:
-            x = torch.randn((data.x.shape[0], 1, num_samples)).to('cuda')
-            #x = data.x.view(data.x.shape[0], data.x.shape[1], num_samples)
-        else:
-            x = data.x.to('cuda')
-        _, labels = model.evaluate(x, data.edge_index.to('cuda'), data.batch.to('cuda'))
-        total_acc += int((labels == data.y.to('cuda')).sum())
-    print(len(loader.dataset))
-    total_acc /= len(loader.dataset)
+    if acc_type == 'labels':
+        total_acc = 0
+        for data in loader:
+            if random:
+                x = torch.randn((data.x.shape[0], 1, num_samples)).to('cuda')
+                #x = data.x.view(data.x.shape[0], data.x.shape[1], num_samples)
+            else:
+                x = data.x.to('cuda')
+            _, labels = model.evaluate(x, data.edge_index.to('cuda'), data.batch.to('cuda'))
+            total_acc += int((labels == data.y.to('cuda')).sum())
+        print(len(loader.dataset))
+        total_acc /= len(loader.dataset)
 
-    return total_acc
+        return total_acc
+    else:
+        total_error = 0
+        for data in loader:
+            data = data.to('cuda')
+            if random:
+                x = torch.randn((data.x.shape[0], 1, num_samples))
+            else:
+                x = data.x
+            out = model.evaluate(x, data.edge_index, data.batch)
+            total_error += (out.squeeze() - data.y).abs().sum().item()
+        return total_error / len(loader.dataset)
+
 
 def loadModel(final=True):
     from nets import GCN
@@ -54,8 +67,12 @@ def loadModel(final=True):
 
     return model
 
-def loadDataset():
-    dataset = TUDataset("./", "IMDB-BINARY")
-    initializeNodes(dataset)
+def loadDataset(type=None):
+    if type == 'imdb':
+        dataset = TUDataset("./", "IMDB-BINARY")
+        initializeNodes(dataset)
+    else:
+        dataset = ZINC('./', "datasets/ZINC")
+        initializeNodes(dataset)
 
     return dataset
