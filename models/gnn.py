@@ -21,25 +21,6 @@ from torch_geometric.utils import spmm
 
 def new_global_mean_pool(x: torch.Tensor, batch: Optional[torch.Tensor],
                      size: Optional[int] = None) -> torch.Tensor:
-    r"""Returns batch-wise graph-level-outputs by averaging node features
-    across the node dimension, so that for a single graph
-    :math:`\mathcal{G}_i` its output is computed by
-
-    .. math::
-        \mathbf{r}_i = \frac{1}{N_i} \sum_{n=1}^{N_i} \mathbf{x}_n.
-
-    Functional method of the
-    :class:`~torch_geometric.nn.aggr.MeanAggregation` module.
-
-    Args:
-        x (torch.Tensor): Node feature matrix
-            :math:`\mathbf{X} \in \mathbb{R}^{(N_1 + \ldots + N_B) \times F}`.
-        batch (torch.Tensor, optional): The batch vector
-            :math:`\mathbf{b} \in {\{ 0, \ldots, B-1\}}^N`, which assigns
-            each node to a specific example.
-        size (int, optional): The number of examples :math:`B`.
-            Automatically calculated if not given. (default: :obj:`None`)
-    """
     #dim = -1 if x.dim() == 1 else -2
     dim = 0
 
@@ -145,58 +126,6 @@ class GCN(torch.nn.Module):
         return preds, labels
 
 class SAGEConv2(MessagePassing):
-    r"""The GraphSAGE operator from the `"Inductive Representation Learning on
-    Large Graphs" <https://arxiv.org/abs/1706.02216>`_ paper
-
-    .. math::
-        \mathbf{x}^{\prime}_i = \mathbf{W}_1 \mathbf{x}_i + \mathbf{W}_2 \cdot
-        \mathrm{mean}_{j \in \mathcal{N(i)}} \mathbf{x}_j
-
-    If :obj:`project = True`, then :math:`\mathbf{x}_j` will first get
-    projected via
-
-    .. math::
-        \mathbf{x}_j \leftarrow \sigma ( \mathbf{W}_3 \mathbf{x}_j +
-        \mathbf{b})
-
-    as described in Eq. (3) of the paper.
-
-    Args:
-        in_channels (int or tuple): Size of each input sample, or :obj:`-1` to
-            derive the size from the first input(s) to the forward method.
-            A tuple corresponds to the sizes of source and target
-            dimensionalities.
-        out_channels (int): Size of each output sample.
-        aggr (str or Aggregation, optional): The aggregation scheme to use.
-            Any aggregation of :obj:`torch_geometric.nn.aggr` can be used,
-            *e.g.*, :obj:`"mean"`, :obj:`"max"`, or :obj:`"lstm"`.
-            (default: :obj:`"mean"`)
-        normalize (bool, optional): If set to :obj:`True`, output features
-            will be :math:`\ell_2`-normalized, *i.e.*,
-            :math:`\frac{\mathbf{x}^{\prime}_i}
-            {\| \mathbf{x}^{\prime}_i \|_2}`.
-            (default: :obj:`False`)
-        root_weight (bool, optional): If set to :obj:`False`, the layer will
-            not add transformed root node features to the output.
-            (default: :obj:`True`)
-        project (bool, optional): If set to :obj:`True`, the layer will apply a
-            linear transformation followed by an activation function before
-            aggregation (as described in Eq. (3) of the paper).
-            (default: :obj:`False`)
-        bias (bool, optional): If set to :obj:`False`, the layer will not learn
-            an additive bias. (default: :obj:`True`)
-        **kwargs (optional): Additional arguments of
-            :class:`torch_geometric.nn.conv.MessagePassing`.
-
-    Shapes:
-        - **inputs:**
-          node features :math:`(|\mathcal{V}|, F_{in})` or
-          :math:`((|\mathcal{V_s}|, F_{s}), (|\mathcal{V_t}|, F_{t}))`
-          if bipartite,
-          edge indices :math:`(2, |\mathcal{E}|)`
-        - **outputs:** node features :math:`(|\mathcal{V}|, F_{out})` or
-          :math:`(|\mathcal{V_t}|, F_{out})` if bipartite
-    """
     def __init__(
         self,
         in_channels: Union[int, Tuple[int, int]],
