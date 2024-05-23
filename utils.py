@@ -6,7 +6,7 @@ from torch_geometric.utils import degree
 from torch_geometric.explain import Explainer, GNNExplainer
 from PIL import Image, ImageDraw, ImageFont
 
-from parameters import *
+from params import *
 
 class AddDegreeAsFeature:
     def __call__(self, data):
@@ -31,12 +31,12 @@ def accuracy(loader, model, random=True, num_samples=10):
     total_acc = 0
     for data in loader:
         if random:
-            x = torch.randn((data.x.shape[0], 1, num_samples))
+            x = torch.randn((data.x.shape[0], 1, num_samples)).to('cuda')
             #x = data.x.view(data.x.shape[0], data.x.shape[1], num_samples)
         else:
-            x = data.x
-        _, labels = model.evaluate(x, data.edge_index, data.batch)
-        total_acc += int((labels == data.y).sum())
+            x = data.x.to('cuda')
+        _, labels = model.evaluate(x, data.edge_index.to('cuda'), data.batch.to('cuda'))
+        total_acc += int((labels == data.y.to('cuda')).sum())
     print(len(loader.dataset))
     total_acc /= len(loader.dataset)
 

@@ -3,7 +3,7 @@ import torch_geometric
 from torch_geometric.nn import GINConv, GCNConv, Linear, global_mean_pool, SAGEConv, JumpingKnowledge, global_add_pool
 from torch_geometric.nn.conv.gcn_conv import gcn_norm
 from typing import Optional
-from utility import label
+from utils import label
 from torch.nn import Linear, Sigmoid, Dropout, Module, Sequential, BatchNorm1d, ReLU
 from torch_geometric.utils import dropout_adj
 

@@ -2,12 +2,14 @@ import argparse
 import torch
 from torch_geometric.loader import DataLoader
 import numpy as np
-from models.gnn import GCN, GraphSAGE, 
+from models.gnn import GCN, GraphSAGE
 from models.gin import GINModel
-from parameters import *
-from utility import *
+from params import *
+from utils import *
 from torch_geometric.data import NeighborSampler
 from torch.utils.data import Subset
+from models.pna import *
+from torch_geometric.utils import degree
 
 def evaluateFinalModel():
     model = loadModel(final=True)
@@ -32,15 +34,17 @@ def prepareLoaders(dataset):
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
-    return train_loader, test_loader
+    return train_loader, test_loader, train_dataset
 
-def prepareTraining(random, model_type=None):
+def prepareTraining(random, model_type=None, deg=None):
     if model_type == 'gcn':
         model = GCN(random)
     elif model_type == 'graphsage':
         model = GraphSAGE(random)
-    else:
+    elif model_type == 'gin':
         model = GINModel()
+    else:
+        model = PNA(random, deg)
     optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
 
     return model, optimizer
@@ -50,17 +54,14 @@ def train(model, train_loader, optimizer, random, num_samples):
 
     total_loss = 0
     i = 0
-    #print("Training with random=", random)
-    #print("Training with random=", random)
     for data in train_loader:
         optimizer.zero_grad()
         if random:
             # x is size N x 1 x M for M samples
             x = torch.randn((data.x.shape[0], 1, num_samples)).to('cuda')
-            #x = data.x.view(data.x.shape[0], data.x.shape[1], num_samples)
             edge_index = data.edge_index.to('cuda')
         else:
-            # x is size N x Features
+            # x is size N x F
             x = data.x.to('cuda')
             edge_index = data.edge_index.to('cuda')
         pred = model(x, edge_index, data.batch.to('cuda'))
@@ -91,10 +92,21 @@ def modelAccuracy(model, test_loader, save=False, random=True, num_samples=10):
 
     return avg_acc
 
-def trainAndSaveModel(random, num_samples, model_type):
+def trainAndSaveModel(random, num_samples, model_type, train_dataset):
+    max_degree = -1
+    for data in train_dataset:
+        d = degree(data.edge_index[1], num_nodes=data.num_nodes, dtype=torch.long)
+        max_degree = max(max_degree, int(d.max()))
+
+    # Compute the in-degree histogram tensor
+    deg = torch.zeros(max_degree + 1, dtype=torch.long)
+    for data in train_dataset:
+        d = degree(data.edge_index[1], num_nodes=data.num_nodes, dtype=torch.long)
+        deg += torch.bincount(d, minlength=deg.numel())
     if num_samples is not None:
         num_samples = int(num_samples)
-    model, optimizer = prepareTraining(random, model_type)
+    
+    model, optimizer = prepareTraining(random, model_type, deg)
     model = model.to('cuda')
 
     trainingLoop(model, train_loader, optimizer, random=random, num_samples=num_samples)
@@ -114,7 +126,7 @@ if __name__ == "__main__":
     # Random denotes random sampling for node features
     # num_samples specifies M, the number of random samples
     dataset = loadDataset()
-    train_loader, test_loader = prepareLoaders(dataset)
+    train_loader, test_loader, train_dataset = prepareLoaders(dataset)
     loss_function = torch.nn.BCELoss() #CrossEntropYloss
 
     if args.evalFinal:
@@ -123,7 +135,7 @@ if __name__ == "__main__":
         evaluateModel()
     elif args.train:
         if args.num_samples is None:
-            trainAndSaveModel(args.random, args.num_samples, args.model_type)
+            trainAndSaveModel(args.random, args.num_samples, args.model_type, train_dataset)
         else:
             for num_sample in args.num_samples:
                 print("Num samples:", num_sample)

@@ -3,7 +3,7 @@ import torch_geometric
 from torch_geometric.nn import GINConv, GCNConv, Linear, global_mean_pool, SAGEConv, JumpingKnowledge, global_add_pool
 from torch_geometric.nn.conv.gcn_conv import gcn_norm
 from typing import Optional
-from utility import label
+from utils import label
 from torch.nn import Linear, Sigmoid, Dropout, Module, Sequential, BatchNorm1d, ReLU
 from torch_geometric.utils import dropout_adj
 
@@ -18,6 +18,7 @@ from torch_geometric.nn.conv import MessagePassing
 from torch_geometric.nn.dense.linear import Linear
 from torch_geometric.typing import Adj, OptPairTensor, Size, SparseTensor
 from torch_geometric.utils import spmm
+from models.gnn import new_global_mean_pool
 
 class Linear2(Linear):
     def __init__(self, in_channels, out_channels, **kwargs):
@@ -52,21 +53,24 @@ class GINModel(torch.nn.Module):
                 )
             , node_dim=0))
 
-        self.out_proj = Linear(hidden_dim, output_dim)
+        self.out_proj = Linear2(hidden_dim, output_dim)
         self.sigmoid = torch.nn.Sigmoid()
+        self.drop = Dropout(0.5)
 
     def forward(self, x, edge_index, batch):
         # input is Nx1xM
         # output should be NxMx1
-        import pdb; pdb.set_trace()
         for gin_conv in self.gin_convs:
             x = gin_conv(x, edge_index)
-        x = new_global_mean_pool(x, torch.zeros(len(x), dtype=torch.int64).to('cuda'))  
-        # x is 1x64x10 (1xHxM) -->   
-        x = x.permute(0,2,1)
+        if batch is not None:
+            x = new_global_mean_pool(x,batch)
+        else:
+            x = new_global_mean_pool(x, torch.zeros(len(x), dtype=torch.int64).to('cuda'))  
+        # x is 32x64x10=(B,H,M)
         # Input should be 10x1x64?
+        x = self.drop(x)
         x = self.out_proj(x)
-        x = self.sigmoid(x)
+        x = self.sigmoid(x.squeeze()).mean(axis=1)
 
         return x
     
