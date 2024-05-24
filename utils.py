@@ -47,7 +47,7 @@ def accuracy(loader, model, random=True, num_samples=10, acc_type=None):
         for data in loader:
             data = data.to('cuda')
             if random:
-                x = torch.randn((data.x.shape[0], 1, num_samples))
+                x = torch.randn((data.x.shape[0], 1, num_samples)).to('cuda')
             else:
                 x = data.x
             out = model.evaluate(x, data.edge_index, data.batch)

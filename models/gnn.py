@@ -120,10 +120,9 @@ class GCN(torch.nn.Module):
     
     def evaluate(self, x, edge_index, batch):
         preds = self.forward(x=x, edge_index=edge_index, batch=batch) # this should be length N
-        #preds = torch.sum(preds)#, axis=2)
-        labels = label(preds)
+        #labels = label(preds)
 
-        return preds, labels
+        return preds #, labels
 
 class SAGEConv2(MessagePassing):
     def __init__(

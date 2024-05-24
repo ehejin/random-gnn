@@ -154,7 +154,8 @@ if __name__ == "__main__":
         else:
             for num_sample in args.num_samples:
                 print("Num samples:", num_sample)
-                trainAndSaveModel(args.random, num_sample, args.model_type)
+                #trainAndSaveModel(args.random, num_sample, args.model_type)
+                trainAndSaveModel(args.random, args.num_samples[0], args.model_type, train_dataset, train_loader, val_loader, test_loader)
     elif args.test:
         testModelAccuracy(int(args.num_samples))
     else:
