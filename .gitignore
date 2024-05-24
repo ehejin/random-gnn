@@ -1,4 +1,4 @@
-IMDB-BINARY/
-saved_models/
-subset/
-raw/
+IMDB-BINARY/*
+saved_models/*
+subset/*
+raw/*
